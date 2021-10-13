@@ -1,0 +1,131 @@
+- name: Playbook for update Java JDK from 8 to 17 and ngnix
+  gather_facts: false
+  hosts: all
+  serial: 10
+  remote_user: root
+
+  vars:
+    os_environment:
+      - key: JAVA_HOME
+        value: "/usr/lib/jvm/jdk-17"
+      - key: PATH
+        value: "$PATH:/usr/lib/jvm/jdk-17/bin"
+
+  tasks:
+    - name: Remove Java 1.8.0
+      yum:
+        name: java-1.8.0-openjdk
+        state: absent
+        autoremove: yes
+
+    - name: Get Java tar archive
+      get_url:
+        url: https://download.java.net/java/GA/jdk17/0d483333a00540d886896bac774ff48b/35/GPL/openjdk-17_linux-x64_bin.tar.gz
+        dest: /root/
+        checksum: sha256:aef49cc7aa606de2044302e757fa94c8e144818e93487081c4fd319ca858134b
+      register: new_archive
+
+    - name: Create a directory for Java if it does not exist
+      file:
+        path: /usr/lib/jvm
+        state: directory
+        mode: '0755'
+
+    - name: Unarchive Java tar
+      unarchive:
+        src: /root/openjdk-17_linux-x64_bin.tar.gz
+        dest: /usr/lib/jvm
+        copy: no
+      when: new_archive.changed
+
+    - name: Add env variables in .bashrc
+      lineinfile:
+        dest: /root/.bashrc
+        state: present
+        regexp: "^{{ item.key }}^"
+        insertafter: "{{ item.key }}"
+        line: "{{ item.key }}={{item.value}}"
+        backup: yes
+      with_items: "{{os_environment}}"
+
+    - name: Add export for env variables in .bashrc
+      lineinfile:
+        dest: /root/.bashrc
+        state: present
+        line: "export {{item.key}}"
+        backup: yes
+      with_items: "{{os_environment}}"
+
+
+
+    - name: Install nginx web server
+      yum:
+        name: nginx
+        state: installed
+        update_cache: true
+      register: ngnixIsInstalled
+
+    - name: Start nginx
+      service:
+        name: nginx
+        enabled: yes
+        state: started
+      when: ngnixIsInstalled.changed
+
+    - name: Allow http and https in firewalld
+      firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        immediate: yes
+        state: enabled
+      loop:
+        - http
+        - https
+
+    - name: Create directory for nginx resourses
+      file:
+        path: /var/www/html/default
+        state: directory
+        owner: nginx
+        group: nginx
+        mode: '0755'
+
+    - name: Change way 
+      lineinfile:
+        dest: /etc/nginx/nginx.conf
+        regexp: '^ *\s* root *\s* /usr/share/nginx/html'
+
+        line: "        root   /var/www/html/default;"
+        backrefs: yes
+        backup: yes
+      register: nginxConfigIsUpdated
+
+    - name: Check NGINX configs
+      shell: "/usr/sbin/nginx -t"
+      register: nginx_config_status
+
+    - name: NGINX debug info
+      debug:
+        msg: "{{ nginx_config_status }} {{ nginx_config_status.rc }}"
+
+    - name: Service NGINX restart and enable on boot
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+      when: nginx_config_status.rc == 0 and nginxConfigIsUpdated.changed
+
+    - name: check ip addr system
+      shell: "hostname -I"
+      register: ip_addr_system
+
+    - name: checking ipaddr system debug info
+      debug:
+        msg: "{{ip_addr_system}}"
+
+    - name: create index file
+      copy:
+        dest: "/var/www/html/default/index.html"
+        content:
+          "{{ip_addr_system.stdout_lines}}"
