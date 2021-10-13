@@ -1,7 +1,7 @@
 - name: Playbook for update Java JDK from 8 to 17 and ngnix
-  gather_facts: false
+  gather_facts: true
   hosts: all
-  serial: 10
+  serial: 3
   remote_user: root
 
   vars:
@@ -90,7 +90,7 @@
         group: nginx
         mode: '0755'
 
-    - name: Change way 
+    - name: Change default nginx directory
       lineinfile:
         dest: /etc/nginx/nginx.conf
         regexp: '^ *\s* root *\s* /usr/share/nginx/html'
@@ -100,15 +100,15 @@
         backup: yes
       register: nginxConfigIsUpdated
 
-    - name: Check NGINX configs
+    - name: Check nginx config file
       shell: "/usr/sbin/nginx -t"
       register: nginx_config_status
 
-    - name: NGINX debug info
+    - name: Nginx debug info
       debug:
         msg: "{{ nginx_config_status }} {{ nginx_config_status.rc }}"
 
-    - name: Service NGINX restart and enable on boot
+    - name: Service Nginx restart and enable on boot
       systemd:
         name: nginx
         state: restarted
@@ -116,15 +116,15 @@
         daemon_reload: yes
       when: nginx_config_status.rc == 0 and nginxConfigIsUpdated.changed
 
-    - name: check ip addr system
+    - name: Check ip address system
       shell: "hostname -I"
       register: ip_addr_system
 
-    - name: checking ipaddr system debug info
+    - name: Checking ipaddr system debug info
       debug:
         msg: "{{ip_addr_system}}"
 
-    - name: create index file
+    - name: Create index file
       copy:
         dest: "/var/www/html/default/index.html"
         content:
